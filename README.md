@@ -14,16 +14,28 @@ its known limitations.
 - Python >= 3.11
 - [`uv`](https://docs.astral.sh/uv/) for dependency management
 
-## Install
+## Installation
+
+### From repository
+
+```bash
+git clone https://github.com/pimenoffd/job-classifier.git
+cd job-classifier
+uv sync
+```
+
+### Dependencies
 
 ```bash
 uv sync
 ```
 
-`data/` is gitignored, so before running either command — or the test
-suite, every file of which reads from it — populate it with the three
-CSVs supplied with the assignment: `classifier.csv`,
-`raw_positions.csv` and `labeled_sample.csv`.
+### Data setup
+
+The project includes sample data CSVs in `data/` directory:
+- `classifier.csv` — canonical 56-class taxonomy
+- `raw_positions.csv` — noisy job titles to match (300 records)
+- `labeled_sample.csv` — ground truth for validation (50 records)
 
 ## Run
 
