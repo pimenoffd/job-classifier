@@ -54,7 +54,7 @@ RESULTS_COLUMNS = (
     "Требует проверки",
 )
 
-DEFAULT_RESULTS_PATH = Path("results.csv")
+DEFAULT_RESULTS_PATH = Path("data/results.csv")
 
 
 def cmd_match(args: argparse.Namespace) -> None:
@@ -269,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=DEFAULT_RESULTS_PATH,
-        help="Path to write results.csv (default: results.csv)",
+        help="Path to write results.csv (default: data/results.csv)",
     )
     match_parser.set_defaults(func=cmd_match)
 
