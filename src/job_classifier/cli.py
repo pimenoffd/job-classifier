@@ -58,9 +58,17 @@ DEFAULT_RESULTS_PATH = Path("data/results.csv")
 
 
 def cmd_match(args: argparse.Namespace) -> None:
+    if args.output.exists():
+        answer = input(f"Файл {args.output} уже существует. Перезаписать? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes", "д", "да"):
+            print("Отменено.")
+            return
+
     rows = read_csv_rows(args.input)
     index = build_index()
+    print(f"Читаю {args.input} ({len(rows)} записей)")
 
+    review_count = 0
     with open(args.output, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f, delimiter=";")
         writer.writerow(RESULTS_COLUMNS)
@@ -69,6 +77,8 @@ def cmd_match(args: argparse.Namespace) -> None:
             normalized = normalize(title)
             candidates = match(title, index)
             decision = decide(candidates, normalized_query=normalized)
+            if decision.requires_review == REVIEW_YES:
+                review_count += 1
             writer.writerow(
                 [
                     row[COL_ID],
@@ -79,6 +89,8 @@ def cmd_match(args: argparse.Namespace) -> None:
                     decision.requires_review,
                 ]
             )
+
+    print(f"Записан {args.output}: {len(rows)} записей, из них на проверку — {review_count}")
 
 
 # ---------------------------------------------------------------------------

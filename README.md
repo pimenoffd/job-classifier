@@ -16,6 +16,12 @@ its known limitations.
 
 ## Installation
 
+### uv
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 ### From repository
 
 ```bash
