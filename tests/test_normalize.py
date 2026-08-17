@@ -51,7 +51,11 @@ def test_mandatory_technique_before_role():
 
 
 def test_mandatory_space_shift():
-    assert normalize("ИНЖЕНЕ РПО ОХРАНЕ ТРУДА") == normalize("Инженер по охране труда")
+    """The misplaced space must be repaired token-by-token: `инжене рпо` -> `инженер по`."""
+    result = normalize("ИНЖЕНЕ РПО ОХРАНЕ ТРУДА")
+    assert result == normalize("Инженер по охране труда")
+    assert result == "инженер по охран труд"
+    assert {"инженер", "по", "охран", "труд"} == set(result.split())
 
 
 # --------------------------------------------------------------------------
