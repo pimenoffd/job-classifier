@@ -1,0 +1,199 @@
+"""Decision layer: turn scored candidates into a code / confidence / review flag.
+
+Public interface:
+
+    make_decision(top1_code, top1_name, s1, s2, normalized_query=None,
+                  threshold_match=THRESHOLD_MATCH) -> Decision
+        The full decision rule of docs/proposed architecture..md §3.3 with
+        PLAN.md §4.3's calibrated OOD confidence applied.
+
+    decide(candidates, normalized_query, threshold_match=THRESHOLD_MATCH)
+        Convenience wrapper over `matcher.match()`'s return value.
+
+    is_out_of_scope(normalized_query) -> bool
+        The out-of-scope safeguard (see below).
+
+Thresholds are **fixed constants**, calibrated on data in PLAN.md §3 — not
+re-derived at run time.  `threshold_match` is a parameter only so that
+`evaluate`'s diagnostic sweep can print metrics at neighbouring values; the
+shipped pipeline always uses the constant.
+
+Confidence semantics (PLAN.md §4.3): the number is *confidence in the
+decision that was taken*, on one scale in both branches.  For a match it is
+the similarity score; for a rejection it is how far below the acceptance
+boundary the best candidate fell, normalised by the empirical floor of
+non-construction scores.  `1.0 - s1` (the original document's formula) is
+deliberately not used: it mixes "confidence in the code" with "confidence in
+the rejection" and peaks at exactly the point of maximum uncertainty.
+
+Out-of-scope safeguard (task-4-brief.md ruling 1): lexical similarity cannot
+separate every non-construction title from the classifier.  Measured leak:
+`Переводчик` scores 0.737 against `КЛС-056 Проходчик` — a pure
+character-level coincidence (7 of 10 letters shared, in order) that no
+normalization rule or metric choice removes.  PLAN.md §9 requires all 20
+known office roles to come out as `НЕТ СООТВЕТСТВИЯ`, so a curated stem list
+overrides the score for them.
+
+**Known limitation, to be disclosed in NOTE.md:** this list covers
+*previously observed* non-construction vocabulary only.  It is not an
+open-ended office-role detector; a new out-of-scope title whose spelling
+happens to collide with a classifier entry would still slip through to the
+"match" branch (where the confidence threshold would flag it for review, so
+it is not silently auto-accepted).
+"""
+
+from __future__ import annotations
+
+from typing import NamedTuple
+
+from rapidfuzz import fuzz
+
+from .matcher import Candidate
+
+#: Acceptance boundary.  PLAN.md §3: max(OOD) = 0.541, min(match) = 0.632.
+THRESHOLD_MATCH = 0.55
+#: Above this a match is trusted without a human.  PLAN.md §3: 8% review load.
+THRESHOLD_CONFIDENT = 0.82
+#: Minimum gap to the runner-up.  PLAN.md §3: never fired on the 300 rows,
+#: kept as a guard against near-tied classifier pairs on unseen data.
+THRESHOLD_MARGIN = 0.08
+#: Empirical floor of non-construction scores (PLAN.md §4.3: `Казначей` 0.375,
+#: `Юрисконсульт` 0.385, `психолог` 0.400).  Denominator of OOD confidence.
+S_FLOOR = 0.35
+#: A rejection this close to the boundary is not trustworthy on its own.
+REVIEW_BAND = 0.10
+
+#: Literal sentinel from the task spec — a marker, not a code.
+NO_MATCH = "НЕТ СООТВЕТСТВИЯ"
+
+#: The `requires_review` column is Russian text in the deliverable CSV.
+REVIEW_YES = "да"
+REVIEW_NO = "нет"
+
+
+class Decision(NamedTuple):
+    code: str
+    name: str
+    confidence: float
+    requires_review: str
+
+
+# ---------------------------------------------------------------------------
+# Out-of-scope safeguard
+# ---------------------------------------------------------------------------
+
+#: Snowball-RU stems of the 20 non-construction titles enumerated in PLAN.md
+#: §2.  Stems, because `normalize()` stems its output: `кадров` -> `кадр`,
+#: `агроном` -> `агрон`, `делопроизводитель` -> `делопроизводител`.
+#: `Системный администратор` is keyed on `администратор` — `системн` alone is
+#: too generic.  Verified: none of these fires on any of the 56 classifier
+#: names, nor on any of the 280 genuine construction rows of
+#: `raw_positions.csv` (see tests/test_decision.py).
+OUT_OF_SCOPE_STEMS: tuple[str, ...] = (
+    "агрон",
+    "администратор",
+    "бухгалтер",
+    "делопроизводител",
+    "диспетчер",
+    "кадр",
+    "казнач",
+    "кладовщик",
+    "курьер",
+    "маркетолог",
+    "менеджер",
+    "охранник",
+    "переводчик",
+    "повар",
+    "программист",
+    "психолог",
+    "уборщик",
+    "фельдшер",
+    "экономист",
+    "юрисконсульт",
+)
+
+#: The input is as noisy as everything else here (`Агроом`, `Диспетче`,
+#: `Кладощвик` all occur), so the stem lookup is typo-tolerant, mirroring
+#: `normalize.correct_token`.  Set tighter than that function's 80: a false
+#: positive here rejects a real construction worker outright, whereas a
+#: correction there only nudges a token.
+OUT_OF_SCOPE_SCORE_CUTOFF = 85.0
+#: Same guard as `normalize.CORRECTION_MAX_LENGTH_DELTA`: a typo shifts a
+#: word's length by a character or two, so `кадр` cannot swallow `кадровщик`.
+OUT_OF_SCOPE_MAX_LENGTH_DELTA = 2
+
+
+def is_out_of_scope(normalized_query: str) -> bool:
+    """True if a token of `normalized_query` is known non-construction vocabulary.
+
+    `normalized_query` must be `normalize()` output — the stems below are
+    stemmed forms, so a raw title will not match.
+    """
+    for token in normalized_query.split():
+        for stem in OUT_OF_SCOPE_STEMS:
+            if abs(len(token) - len(stem)) > OUT_OF_SCOPE_MAX_LENGTH_DELTA:
+                continue
+            if fuzz.ratio(token, stem) >= OUT_OF_SCOPE_SCORE_CUTOFF:
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Decision rule
+# ---------------------------------------------------------------------------
+
+
+def make_decision(
+    top1_code: str,
+    top1_name: str,
+    s1: float,
+    s2: float,
+    normalized_query: str | None = None,
+    threshold_match: float = THRESHOLD_MATCH,
+) -> Decision:
+    """Apply the thresholds to the top-2 scores and return the final verdict.
+
+    `normalized_query` enables the out-of-scope safeguard; when it is `None`
+    the decision is made on the scores alone.
+    """
+    # 0. Curated out-of-scope vocabulary overrides the score entirely: the
+    #    hit is a dictionary fact, so the rejection is certain and no human
+    #    needs to look at it.
+    if normalized_query is not None and is_out_of_scope(normalized_query):
+        return Decision(NO_MATCH, "", 1.0, REVIEW_NO)
+
+    # 1. Out-of-Distribution: nothing in the classifier is close enough.
+    if s1 < threshold_match:
+        raw = (threshold_match - s1) / (threshold_match - S_FLOOR)
+        confidence = round(min(1.0, max(0.0, raw)), 3)
+        requires_review = REVIEW_YES if s1 >= (threshold_match - REVIEW_BAND) else REVIEW_NO
+        return Decision(NO_MATCH, "", confidence, requires_review)
+
+    # 2. Match found.
+    confidence = round(s1, 3)
+    margin = s1 - s2
+    if confidence < THRESHOLD_CONFIDENT or margin < THRESHOLD_MARGIN:
+        requires_review = REVIEW_YES
+    else:
+        requires_review = REVIEW_NO
+    return Decision(top1_code, top1_name, confidence, requires_review)
+
+
+def decide(
+    candidates: list[Candidate],
+    normalized_query: str | None = None,
+    threshold_match: float = THRESHOLD_MATCH,
+) -> Decision:
+    """`make_decision` fed straight from `matcher.match()`'s return value."""
+    if not candidates:
+        return Decision(NO_MATCH, "", 1.0, REVIEW_NO)
+    top1 = candidates[0]
+    s2 = candidates[1].score if len(candidates) > 1 else 0.0
+    return make_decision(
+        top1.code,
+        top1.name,
+        top1.score,
+        s2,
+        normalized_query=normalized_query,
+        threshold_match=threshold_match,
+    )
