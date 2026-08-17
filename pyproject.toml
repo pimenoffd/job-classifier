@@ -1,0 +1,21 @@
+[project]
+name = "job-classifier"
+version = "0.1.0"
+description = "Match noisy Russian job-title strings against a canonical classifier"
+requires-python = ">=3.11"
+dependencies = [
+    "rapidfuzz",
+    "snowballstemmer",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/job_classifier"]
