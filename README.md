@@ -27,11 +27,14 @@ uv run python -m job_classifier match      # data/raw_positions.csv -> results.c
 uv run python -m job_classifier evaluate   # metrics on data/labeled_sample.csv
 ```
 
-Both commands read their input from `data/` by default. Override with
-`--input`/`--output` if needed, e.g.:
+Both commands read their input from `data/` by default and accept
+`--input` to override it. `match` also accepts `--output` (default
+`results.csv`); `evaluate` has no `--output` — it prints metrics to
+stdout. E.g.:
 
 ```bash
 uv run python -m job_classifier match --input data/raw_positions.csv --output results.csv
+uv run python -m job_classifier evaluate --input data/labeled_sample.csv
 ```
 
 ## Test
