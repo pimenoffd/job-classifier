@@ -7,8 +7,9 @@ Public interface:
         The full decision rule of docs/proposed architecture..md §3.3 with
         PLAN.md §4.3's calibrated OOD confidence applied.
 
-    decide(candidates, normalized_query, threshold_match=THRESHOLD_MATCH)
-        Convenience wrapper over `matcher.match()`'s return value.
+    decide(candidates, normalized_query=None, threshold_match=THRESHOLD_MATCH)
+        Convenience wrapper over `matcher.match()`'s return value.  Pass
+        `normalized_query` — omitting it silently disables the safeguard.
 
     is_out_of_scope(normalized_query) -> bool
         The out-of-scope safeguard (see below).
@@ -184,7 +185,14 @@ def decide(
     normalized_query: str | None = None,
     threshold_match: float = THRESHOLD_MATCH,
 ) -> Decision:
-    """`make_decision` fed straight from `matcher.match()`'s return value."""
+    """`make_decision` fed straight from `matcher.match()`'s return value.
+
+    Pass `normalize(title)` as `normalized_query`: it is what enables the
+    out-of-scope safeguard, and leaving it `None` disables that safeguard
+    silently — known non-construction titles would then be decided on score
+    alone, and `Переводчик` (0.737 against КЛС-056 Проходчик) would come back
+    as a match instead of `НЕТ СООТВЕТСТВИЯ`.
+    """
     if not candidates:
         return Decision(NO_MATCH, "", 1.0, REVIEW_NO)
     top1 = candidates[0]
