@@ -40,9 +40,41 @@ def read_csv_rows(path: Path) -> list[dict[str, str]]:
         return list(reader)
 
 
+#: Columns of the `match` command's output, in order (PLAN.md §6/§7 step 5).
+RESULTS_COLUMNS = (
+    "id",
+    "Исходное наименование",
+    "Код",
+    "Наименование по классификатору",
+    "Уверенность",
+    "Требует проверки",
+)
+
+DEFAULT_RESULTS_PATH = Path("results.csv")
+
+
 def cmd_match(args: argparse.Namespace) -> None:
     rows = read_csv_rows(args.input)
-    print(len(rows))
+    index = build_index()
+
+    with open(args.output, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(RESULTS_COLUMNS)
+        for row in rows:
+            title = row[COL_TITLE]
+            normalized = normalize(title)
+            candidates = match(title, index)
+            decision = decide(candidates, normalized_query=normalized)
+            writer.writerow(
+                [
+                    row[COL_ID],
+                    title,
+                    decision.code,
+                    decision.name,
+                    f"{decision.confidence:.3f}",
+                    decision.requires_review,
+                ]
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +260,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_RAW_POSITIONS_PATH,
         help="Path to raw_positions.csv (default: data/raw_positions.csv)",
+    )
+    match_parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_RESULTS_PATH,
+        help="Path to write results.csv (default: results.csv)",
     )
     match_parser.set_defaults(func=cmd_match)
 
