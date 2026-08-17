@@ -7,8 +7,9 @@ classifier index, by `matcher.py`):
     load_classifier(path=None) -> list[tuple[str, str]]
         The 56 `(code, canonical name)` pairs read from `data/classifier.csv`.
 
-    CLASSIFIER_PATH
-        Default location of that file.
+    DATA_DIR, CLASSIFIER_PATH
+        Default location of the input data, anchored to the repo root via
+        `__file__` (not to the current working directory).
 
     COMPANY_RE, STATUS_TAG_RE, GRADE_RE
         Garbage-tail removal (PLAN.md §2 "мусорные хвосты").
@@ -32,7 +33,11 @@ import csv
 import re
 from pathlib import Path
 
-CLASSIFIER_PATH = Path(__file__).resolve().parents[2] / "data" / "classifier.csv"
+#: Every default input path is anchored here, not to the current working
+#: directory, so the CLI and the tests behave the same from any cwd.
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+
+CLASSIFIER_PATH = DATA_DIR / "classifier.csv"
 
 
 def load_classifier(path: Path | None = None) -> list[tuple[str, str]]:

@@ -29,11 +29,12 @@ from job_classifier.decision import (
     REVIEW_YES,
     S_FLOOR,
     THRESHOLD_MATCH,
+    decide,
     is_out_of_scope,
     make_decision,
 )
 from job_classifier.dictionaries import load_classifier
-from job_classifier.matcher import build_index
+from job_classifier.matcher import build_index, match
 from job_classifier.normalize import normalize
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -123,6 +124,18 @@ def test_match_with_thin_margin_requires_review():
     assert make_decision("КЛС-004", "Бетонщик", 0.90, 0.85).requires_review == REVIEW_YES
 
 
+@pytest.mark.parametrize("title", ["", "   ", "\t", "2 разряда"])
+def test_empty_title_is_flagged_not_confidently_rejected(title, index):
+    """A blank position field is realistic in a 1C export; all scores come out
+    0, which must not read as a maximally confident rejection."""
+    normalized = normalize(title)
+    assert normalized.strip() == ""
+    decision = decide(match(title, index), normalized_query=normalized)
+    assert decision.code == NO_MATCH
+    assert decision.requires_review == REVIEW_YES
+    assert decision.confidence == 0.0
+
+
 # ---------------------------------------------------------------------------
 # 2. Out-of-scope safeguard (controller ruling 1)
 # ---------------------------------------------------------------------------
@@ -140,6 +153,71 @@ def test_perevodchik_is_rejected_despite_scoring_above_threshold():
 def test_all_twenty_known_office_titles_are_rejected():
     rejected = [t for t in OFFICE_TITLES if is_out_of_scope(normalize(t))]
     assert rejected == OFFICE_TITLES
+
+
+#: `Переводчик` is the one office title whose score clears `T_match` (0.737
+#: against `КЛС-056 Проходчик`), so it takes the safeguard's *collision* path
+#: rather than the certain-rejection one.  All 19 others score 0.400-0.549.
+PERFECTLY_CERTAIN_OFFICE_TITLES = [t for t in OFFICE_TITLES if t != "Переводчик"]
+
+
+@pytest.mark.parametrize("title", PERFECTLY_CERTAIN_OFFICE_TITLES)
+def test_known_office_titles_are_confidently_auto_rejected(title, index):
+    """The safeguard's common path: no competing signal, so no human needed."""
+    candidates = match(title, index)
+    assert candidates[0].score < THRESHOLD_MATCH
+    decision = decide(candidates, normalized_query=normalize(title))
+    assert decision == (NO_MATCH, "", 1.0, REVIEW_NO)
+
+
+#: Real titles that carry *both* signals: a genuine construction role and an
+#: office word. The safeguard's rejection must not be silent here.
+COLLIDING_TITLES = [
+    "Мастер строительных и монтажных работ / менеджер",
+    "Инженер по охране труда, кладовщик",
+    "Машинист крана автомобильного (диспетчер смены)",
+]
+
+
+@pytest.mark.parametrize("title", COLLIDING_TITLES)
+def test_safeguard_hit_with_a_strong_match_goes_to_review(title, index):
+    candidates = match(title, index)
+    normalized = normalize(title)
+    # Precondition: the safeguard fires *and* the lexical match is acceptable.
+    assert is_out_of_scope(normalized)
+    assert candidates[0].score >= THRESHOLD_MATCH
+
+    decision = decide(candidates, normalized_query=normalized)
+    # The code stays the sentinel — guessing the "real" code from a mixed
+    # title is not the safeguard's job — but a human has to look.
+    assert decision.code == NO_MATCH
+    assert decision.requires_review == REVIEW_YES
+    assert decision.confidence < 1.0
+
+
+def test_safeguard_collision_confidence_reflects_the_contradiction():
+    decision = make_decision(
+        "КЛС-047",
+        "Мастер строительных и монтажных работ",
+        0.880,
+        0.500,
+        normalized_query=normalize("Мастер строительных и монтажных работ / менеджер"),
+    )
+    # Confidence *in the rejection*, and the score supports none of it.
+    assert decision.confidence == 0.0
+
+
+def test_perevodchik_is_rejected_but_not_silently(index):
+    """The documented 0.737 leak: rejected, and — since the score disagrees
+    that strongly — sent to a human rather than auto-accepted.
+
+    A character-level coincidence this large is exactly what the curated list
+    cannot be trusted to have anticipated in general, so the row costs one
+    review slot instead of a silent verdict.
+    """
+    decision = decide(match("Переводчик", index), normalized_query=normalize("Переводчик"))
+    assert decision.code == NO_MATCH
+    assert decision.requires_review == REVIEW_YES
 
 
 def test_safeguard_does_not_fire_on_any_classifier_name():

@@ -20,6 +20,11 @@ its known limitations.
 uv sync
 ```
 
+`data/` is gitignored, so before running either command — or the test
+suite, every file of which reads from it — populate it with the three
+CSVs supplied with the assignment: `classifier.csv`,
+`raw_positions.csv` and `labeled_sample.csv`.
+
 ## Run
 
 ```bash
@@ -49,3 +54,12 @@ uv run pytest
 columns `id`, `Исходное наименование`, `Код`, `Наименование по
 классификатору`, `Уверенность`, `Требует проверки` (`да`/`нет`).
 `НЕТ СООТВЕТСТВИЯ` is the literal sentinel for "no match", not a code.
+
+`Уверенность` is always confidence **in the decision that was taken**,
+so it reads the same way in both cases: low = uncertain = deserves a
+look, high = settled. What the decision *is* differs — when `Код` is a
+classifier code, it is confidence in that code (higher = more sure this
+is the right entry); when `Код` is `НЕТ СООТВЕТСТВИЯ`, it is confidence
+in the rejection (higher = more sure this really is not a construction
+role). The two are calibrated onto one scale, so `Требует проверки`
+follows from a low value in either case.

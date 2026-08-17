@@ -8,10 +8,12 @@ NOTE on the expected id set: task-5-brief.md predicted exactly 20 non-
 construction ids (the known office-role titles). The actual full-dataset run
 produces 21: the 20 predicted ids plus id 38 (`МАСТЕР СТРОЙУАСТКА`), a
 heavily typo-garbled *construction* title (likely "Мастер стройучастка")
-whose best classifier score (0.545, against `КЛС-047 Мастер строительных и
-монтажных работ`) falls just under `THRESHOLD_MATCH` (0.55) — not because of
-the out-of-scope safeguard (which always yields confidence 1.0 / "нет"), but
-because `normalize.correct_token` does not repair "стройуастк" well enough
+whose best classifier score (0.5455, against `КЛС-009 Маляр строительный`)
+falls just under `THRESHOLD_MATCH` (0.55) — and the semantically right code,
+`КЛС-047 Мастер строительных и монтажных работ`, is not even the runner-up:
+it shares 3rd-4th place with `КЛС-032` at 0.500. So the rejection is not
+caused by the out-of-scope safeguard; it happens because
+`normalize.correct_token` does not repair "стройуастк" well enough
 for the phrase-level score to clear the boundary. It is flagged
 `Требует проверки == "да"`, so a human reviewer would still catch it; it is
 not silently misfiled. This is flagged to the controller as a scope

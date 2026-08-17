@@ -15,11 +15,15 @@ from .decision import (
     THRESHOLD_MATCH,
     decide,
 )
+from .dictionaries import DATA_DIR
 from .matcher import Candidate, ClassifierIndex, build_index, match
 from .normalize import normalize
 
-DEFAULT_RAW_POSITIONS_PATH = Path("data/raw_positions.csv")
-DEFAULT_LABELED_SAMPLE_PATH = Path("data/labeled_sample.csv")
+#: Anchored to the repo root via `dictionaries.DATA_DIR`, the same convention
+#: `classifier.csv` uses — so the defaults resolve from any working directory
+#: instead of only from the repo root.
+DEFAULT_RAW_POSITIONS_PATH = DATA_DIR / "raw_positions.csv"
+DEFAULT_LABELED_SAMPLE_PATH = DATA_DIR / "labeled_sample.csv"
 
 #: Column names of `labeled_sample.csv`.
 COL_ID = "id"

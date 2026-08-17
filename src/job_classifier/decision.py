@@ -41,6 +41,12 @@ open-ended office-role detector; a new out-of-scope title whose spelling
 happens to collide with a classifier entry would still slip through to the
 "match" branch (where the confidence threshold would flag it for review, so
 it is not silently auto-accepted).
+
+The safeguard also has to yield when the *same* title carries both signals —
+`Мастер строительных и монтажных работ / менеджер` is a genuine construction
+role with an office word appended.  A curated hit on such a title is no
+longer a certain rejection, so it is routed to a human instead of being
+silently discarded; see `make_decision` step 0.
 """
 
 from __future__ import annotations
@@ -144,6 +150,17 @@ def is_out_of_scope(normalized_query: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _ood_confidence(s1: float, threshold_match: float) -> float:
+    """Confidence *in a rejection*: how far below the boundary the best fell.
+
+    Clamped to [0, 1], so a rejection taken while `s1` is at or above the
+    boundary — only the safeguard does that — comes out at 0.0: the score
+    offers no support whatsoever for the rejection.
+    """
+    raw = (threshold_match - s1) / (threshold_match - S_FLOOR)
+    return round(min(1.0, max(0.0, raw)), 3)
+
+
 def make_decision(
     top1_code: str,
     top1_name: str,
@@ -157,16 +174,31 @@ def make_decision(
     `normalized_query` enables the out-of-scope safeguard; when it is `None`
     the decision is made on the scores alone.
     """
-    # 0. Curated out-of-scope vocabulary overrides the score entirely: the
-    #    hit is a dictionary fact, so the rejection is certain and no human
-    #    needs to look at it.
+    # 0a. An empty title (a blank position field is realistic in a 1C export)
+    #     carries no signal at all: every score is 0, which would otherwise
+    #     read as a maximally confident rejection.  Reject, but send it to a
+    #     human — there is nothing here to be confident about.
+    if normalized_query is not None and not normalized_query.strip():
+        return Decision(NO_MATCH, "", 0.0, REVIEW_YES)
+
+    # 0b. Curated out-of-scope vocabulary overrides the score.  Two cases:
+    #     - no competing signal (`s1` below the acceptance boundary): the hit
+    #       is a dictionary fact and the rejection is certain — the common
+    #       case, e.g. a bare `Экономист планового отдела`.
+    #     - a collision (`s1` at or above the boundary): the title also
+    #       matches a real construction role strongly, e.g. `Мастер
+    #       строительных и монтажных работ / менеджер` at 0.880.  The two
+    #       signals contradict each other, so the rejection is kept (guessing
+    #       the "real" code from a mixed title is not the safeguard's job) but
+    #       it is no longer certain and must reach a human.
     if normalized_query is not None and is_out_of_scope(normalized_query):
-        return Decision(NO_MATCH, "", 1.0, REVIEW_NO)
+        if s1 < threshold_match:
+            return Decision(NO_MATCH, "", 1.0, REVIEW_NO)
+        return Decision(NO_MATCH, "", _ood_confidence(s1, threshold_match), REVIEW_YES)
 
     # 1. Out-of-Distribution: nothing in the classifier is close enough.
     if s1 < threshold_match:
-        raw = (threshold_match - s1) / (threshold_match - S_FLOOR)
-        confidence = round(min(1.0, max(0.0, raw)), 3)
+        confidence = _ood_confidence(s1, threshold_match)
         requires_review = REVIEW_YES if s1 >= (threshold_match - REVIEW_BAND) else REVIEW_NO
         return Decision(NO_MATCH, "", confidence, requires_review)
 
