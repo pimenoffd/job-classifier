@@ -43,6 +43,21 @@ The project includes sample data CSVs in `data/` directory:
 - `raw_positions.csv` — noisy job titles to match (300 records)
 - `labeled_sample.csv` — ground truth for validation (50 records)
 
+## Configuration
+
+Thresholds and weights live in `config.toml` at the repo root (`[decision]`,
+`[normalize]`, `[matcher]`) — edit values there to retune the pipeline, no
+code changes needed. Notably `decision.out_of_scope_safeguard_enabled`
+(default `false`) toggles a curated dictionary of 20 known non-construction
+job titles (`data/out_of_scope_stems.txt`); off by default because it only
+covers previously observed vocabulary and doesn't generalize — see `NOTE.md`
+for the measured tradeoff.
+
+Word lists the normalization pipeline depends on are plain text files under
+`data/`, one `pattern;replacement` (or one stem) per line:
+`abbreviations.txt`, `synonyms.txt`, `crane_technique.txt`,
+`out_of_scope_stems.txt`.
+
 ## Run
 
 ```bash
@@ -79,5 +94,14 @@ look, high = settled. What the decision *is* differs — when `Код` is a
 classifier code, it is confidence in that code (higher = more sure this
 is the right entry); when `Код` is `НЕТ СООТВЕТСТВИЯ`, it is confidence
 in the rejection (higher = more sure this really is not a construction
-role). The two are calibrated onto one scale, so `Требует проверки`
-follows from a low value in either case.
+role). The two are calibrated onto one scale.
+
+`Требует проверки` follows `Уверенность` only on the match side (low
+confidence or a thin margin to the runner-up sends it to a human). By
+default, every `НЕТ СООТВЕТСТВИЯ` requires review regardless of how high
+its confidence reads — a low score is not a verified fact the way a
+dictionary hit is; it can also mean the normalization vocabulary didn't
+recognize an unfamiliar, genuine construction title. Set
+`decision.review_all_rejections = false` in `config.toml` to only review
+rejections within `decision.review_band` of the acceptance boundary and
+auto-reject the rest. See `NOTE.md` §3.

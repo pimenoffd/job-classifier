@@ -33,6 +33,8 @@ class DecisionConfig(NamedTuple):
     out_of_scope_score_cutoff: float
     out_of_scope_max_length_delta: int
     out_of_scope_safeguard_enabled: bool
+    review_all_rejections: bool
+    review_band: float
 
 
 class NormalizeConfig(NamedTuple):

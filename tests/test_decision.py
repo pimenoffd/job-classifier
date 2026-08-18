@@ -124,8 +124,24 @@ def test_ood_far_below_boundary_still_requires_review():
     # A low score is not a verified fact (unlike a dictionary hit in the
     # out-of-scope safeguard) — it can also mean the normalization
     # vocabulary just didn't recognize an unfamiliar, genuine construction
-    # title, so every generic OOD rejection goes to a human.
+    # title, so every generic OOD rejection goes to a human. (Shipped
+    # default: config.toml's `decision.review_all_rejections = true`.)
     assert make_decision("КЛС-046", "Прораб", 0.30, 0.20).requires_review == REVIEW_YES
+
+
+def test_borderline_only_mode_auto_rejects_far_below_boundary(monkeypatch):
+    # config.toml's `decision.review_all_rejections = false` opt-out: only
+    # rejections within REVIEW_BAND of the boundary go to a human.
+    monkeypatch.setattr(decision_module, "REVIEW_ALL_REJECTIONS", False)
+    monkeypatch.setattr(decision_module, "REVIEW_BAND", 0.10)
+    assert make_decision("КЛС-046", "Прораб", 0.30, 0.20).requires_review == REVIEW_NO
+
+
+def test_borderline_only_mode_still_reviews_near_boundary(monkeypatch):
+    monkeypatch.setattr(decision_module, "REVIEW_ALL_REJECTIONS", False)
+    monkeypatch.setattr(decision_module, "REVIEW_BAND", 0.10)
+    decision = make_decision("КЛС-046", "Прораб", 0.549, 0.400)
+    assert decision.requires_review == REVIEW_YES
 
 
 def test_confident_match_is_auto_accepted():

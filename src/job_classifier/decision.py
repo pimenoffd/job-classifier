@@ -76,6 +76,11 @@ THRESHOLD_MATCH = CONFIG.decision.threshold_match
 THRESHOLD_CONFIDENT = CONFIG.decision.threshold_confident
 THRESHOLD_MARGIN = CONFIG.decision.threshold_margin
 S_FLOOR = CONFIG.decision.s_floor
+#: When `True` (shipped default), every `НЕТ СООТВЕТСТВИЯ` rejection
+#: requires review regardless of score. When `False`, only rejections within
+#: `REVIEW_BAND` of `threshold_match` do — see `make_decision` step 1.
+REVIEW_ALL_REJECTIONS = CONFIG.decision.review_all_rejections
+REVIEW_BAND = CONFIG.decision.review_band
 
 #: Literal sentinel from the task spec — a marker, not a code.
 NO_MATCH = "НЕТ СООТВЕТСТВИЯ"
@@ -201,11 +206,18 @@ def make_decision(
     # 1. Out-of-Distribution: nothing in the classifier is close enough. A low
     #    score is not a verified fact the way a dictionary hit is — it can
     #    also mean the normalization vocabulary didn't recognize a genuine,
-    #    unfamiliar construction title — so every rejection here goes to a
-    #    human, regardless of how far below the boundary it falls.
+    #    unfamiliar construction title. `REVIEW_ALL_REJECTIONS` (shipped
+    #    default) sends every rejection to a human regardless of how far
+    #    below the boundary it falls; set it to `False` in config.toml to
+    #    only review the ones within `REVIEW_BAND` of the boundary and
+    #    auto-reject the rest.
     if s1 < threshold_match:
         confidence = _ood_confidence(s1, threshold_match)
-        return Decision(NO_MATCH, "", confidence, REVIEW_YES)
+        if REVIEW_ALL_REJECTIONS:
+            requires_review = REVIEW_YES
+        else:
+            requires_review = REVIEW_YES if s1 >= (threshold_match - REVIEW_BAND) else REVIEW_NO
+        return Decision(NO_MATCH, "", confidence, requires_review)
 
     # 2. Match found.
     confidence = round(s1, 3)
