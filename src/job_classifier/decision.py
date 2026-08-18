@@ -33,15 +33,16 @@ separate every non-construction title from the classifier.  Measured leak:
 character-level coincidence (7 of 10 letters shared, in order) that no
 normalization rule or metric choice removes.  PLAN.md §9 requires all 20
 known office roles to come out as `НЕТ СООТВЕТСТВИЯ`, so a curated stem list
-overrides the score for them — loaded from `OUT_OF_SCOPE_STEMS_PATH`, one of
-two file variants (`out_of_scope_stems_filled.txt` /
-`out_of_scope_stems_empty.txt`) in `data/`. The pipeline ships pointed at the
-**empty** file: measured with the safeguard off, `THRESHOLD_CONFIDENT`
-already keeps the one scoring leak (`Переводчик`) out of the auto-accepted
-branch on its own, so disabling the curated list costs review-queue size
-(4 -> 16 of 300 rows), not correctness — see NOTE.md. Point
-`OUT_OF_SCOPE_STEMS_PATH` at the filled file to shrink the review queue back
-down.
+overrides the score for them — kept in `data/out_of_scope_stems.txt`,
+loaded via `load_out_of_scope_stems()`. The pipeline ships with the
+safeguard **off** (`OUT_OF_SCOPE_STEMS = ()`): measured that way,
+`THRESHOLD_CONFIDENT` already keeps the one scoring leak (`Переводчик`) out
+of the auto-accepted branch on its own, so disabling the curated list costs
+review-queue size (4 -> 23 of 300 rows, all correctness-neutral: no rejection
+that skips review ever fires without the list, per `make_decision` step 1),
+not correctness — see NOTE.md. Set `OUT_OF_SCOPE_STEMS =
+load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)` to shrink the review queue
+back down.
 
 **Known limitation, to be disclosed in NOTE.md:** this list covers
 *previously observed* non-construction vocabulary only.  It is not an
@@ -77,8 +78,6 @@ THRESHOLD_MARGIN = 0.08
 #: Empirical floor of non-construction scores (PLAN.md §4.3: `Казначей` 0.375,
 #: `Юрисконсульт` 0.385, `психолог` 0.400).  Denominator of OOD confidence.
 S_FLOOR = 0.35
-#: A rejection this close to the boundary is not trustworthy on its own.
-REVIEW_BAND = 0.10
 
 #: Literal sentinel from the task spec — a marker, not a code.
 NO_MATCH = "НЕТ СООТВЕТСТВИЯ"
@@ -99,21 +98,14 @@ class Decision(NamedTuple):
 # Out-of-scope safeguard
 # ---------------------------------------------------------------------------
 
-#: Two variants of the curated stem list, as plain text files (one stem per
-#: line, `#` comments ignored) — see `load_out_of_scope_stems()`.  Stems,
-#: because `normalize()` stems its output: `кадров` -> `кадр`, `агроном` ->
-#: `агрон`, `делопроизводитель` -> `делопроизводител`.  `Системный
-#: администратор` is keyed on `администратор` — `системн` alone is too
-#: generic.  Verified (tests/test_decision.py): the filled variant fires on
-#: none of the 56 classifier names, nor on any of the 280 genuine
-#: construction rows of `raw_positions.csv`.
-OUT_OF_SCOPE_STEMS_EMPTY_PATH = DATA_DIR / "out_of_scope_stems_empty.txt"
-OUT_OF_SCOPE_STEMS_FILLED_PATH = DATA_DIR / "out_of_scope_stems_filled.txt"
-
-#: The pipeline ships with the safeguard **off**: swap this to
-#: `OUT_OF_SCOPE_STEMS_FILLED_PATH` (or edit the empty file's contents) to
-#: turn it back on.
-OUT_OF_SCOPE_STEMS_PATH = OUT_OF_SCOPE_STEMS_EMPTY_PATH
+#: The curated stem list, as a plain text file (one stem per line, `#`
+#: comments ignored) — see `load_out_of_scope_stems()`.  Stems, because
+#: `normalize()` stems its output: `кадров` -> `кадр`, `агроном` -> `агрон`,
+#: `делопроизводитель` -> `делопроизводител`.  `Системный администратор` is
+#: keyed on `администратор` — `системн` alone is too generic.  Verified
+#: (tests/test_decision.py): fires on none of the 56 classifier names, nor on
+#: any of the 280 genuine construction rows of `raw_positions.csv`.
+OUT_OF_SCOPE_STEMS_PATH = DATA_DIR / "out_of_scope_stems.txt"
 
 
 def load_out_of_scope_stems(path: Path) -> tuple[str, ...]:
@@ -122,7 +114,10 @@ def load_out_of_scope_stems(path: Path) -> tuple[str, ...]:
         return tuple(line.strip() for line in f if line.strip() and not line.strip().startswith("#"))
 
 
-OUT_OF_SCOPE_STEMS: tuple[str, ...] = load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)
+#: The pipeline ships with the safeguard **off** — no file needed to express
+#: "no curated stems"; call `load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)`
+#: to turn it back on.
+OUT_OF_SCOPE_STEMS: tuple[str, ...] = ()
 
 #: The input is as noisy as everything else here (`Агроом`, `Диспетче`,
 #: `Кладощвик` all occur), so the stem lookup is typo-tolerant, mirroring
@@ -201,11 +196,14 @@ def make_decision(
             return Decision(NO_MATCH, "", 1.0, REVIEW_NO)
         return Decision(NO_MATCH, "", _ood_confidence(s1, threshold_match), REVIEW_YES)
 
-    # 1. Out-of-Distribution: nothing in the classifier is close enough.
+    # 1. Out-of-Distribution: nothing in the classifier is close enough. A low
+    #    score is not a verified fact the way a dictionary hit is — it can
+    #    also mean the normalization vocabulary didn't recognize a genuine,
+    #    unfamiliar construction title — so every rejection here goes to a
+    #    human, regardless of how far below the boundary it falls.
     if s1 < threshold_match:
         confidence = _ood_confidence(s1, threshold_match)
-        requires_review = REVIEW_YES if s1 >= (threshold_match - REVIEW_BAND) else REVIEW_NO
-        return Decision(NO_MATCH, "", confidence, requires_review)
+        return Decision(NO_MATCH, "", confidence, REVIEW_YES)
 
     # 2. Match found.
     confidence = round(s1, 3)

@@ -41,15 +41,16 @@ from job_classifier.normalize import normalize
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-#: Section 2 tests exercise the safeguard *mechanism*, so they run against
-#: the filled stem list regardless of which variant the pipeline ships with
-#: by default (`decision.OUT_OF_SCOPE_STEMS_PATH`).
-@pytest.fixture(autouse=True)
+#: Section 2 tests exercise the safeguard *mechanism*, so they explicitly opt
+#: into the filled stem list — the pipeline ships with `OUT_OF_SCOPE_STEMS =
+#: ()` (safeguard off), and section 3's regression gate deliberately tests
+#: that real shipped default rather than this fixture's override.
+@pytest.fixture
 def filled_out_of_scope_stems(monkeypatch):
     monkeypatch.setattr(
         decision_module,
         "OUT_OF_SCOPE_STEMS",
-        load_out_of_scope_stems(decision_module.OUT_OF_SCOPE_STEMS_FILLED_PATH),
+        load_out_of_scope_stems(decision_module.OUT_OF_SCOPE_STEMS_PATH),
     )
 
 #: The 20 non-construction titles of PLAN.md §2, verbatim as they appear in
@@ -119,8 +120,12 @@ def test_ood_confidence_is_clamped_to_one():
     assert make_decision("КЛС-046", "Прораб", 0.10, 0.05).confidence == 1.0
 
 
-def test_ood_far_below_boundary_is_auto_accepted():
-    assert make_decision("КЛС-046", "Прораб", 0.30, 0.20).requires_review == REVIEW_NO
+def test_ood_far_below_boundary_still_requires_review():
+    # A low score is not a verified fact (unlike a dictionary hit in the
+    # out-of-scope safeguard) — it can also mean the normalization
+    # vocabulary just didn't recognize an unfamiliar, genuine construction
+    # title, so every generic OOD rejection goes to a human.
+    assert make_decision("КЛС-046", "Прораб", 0.30, 0.20).requires_review == REVIEW_YES
 
 
 def test_confident_match_is_auto_accepted():
@@ -154,7 +159,7 @@ def test_empty_title_is_flagged_not_confidently_rejected(title, index):
 # ---------------------------------------------------------------------------
 
 
-def test_perevodchik_is_rejected_despite_scoring_above_threshold():
+def test_perevodchik_is_rejected_despite_scoring_above_threshold(filled_out_of_scope_stems):
     # Known residual leak: `Переводчик` scores 0.737 against КЛС-056 Проходчик
     # (a character-level coincidence). The safeguard must override the score.
     decision = make_decision(
@@ -163,7 +168,7 @@ def test_perevodchik_is_rejected_despite_scoring_above_threshold():
     assert decision.code == NO_MATCH
 
 
-def test_all_twenty_known_office_titles_are_rejected():
+def test_all_twenty_known_office_titles_are_rejected(filled_out_of_scope_stems):
     rejected = [t for t in OFFICE_TITLES if is_out_of_scope(normalize(t))]
     assert rejected == OFFICE_TITLES
 
@@ -175,7 +180,7 @@ PERFECTLY_CERTAIN_OFFICE_TITLES = [t for t in OFFICE_TITLES if t != "Перев�
 
 
 @pytest.mark.parametrize("title", PERFECTLY_CERTAIN_OFFICE_TITLES)
-def test_known_office_titles_are_confidently_auto_rejected(title, index):
+def test_known_office_titles_are_confidently_auto_rejected(title, index, filled_out_of_scope_stems):
     """The safeguard's common path: no competing signal, so no human needed."""
     candidates = match(title, index)
     assert candidates[0].score < THRESHOLD_MATCH
@@ -193,7 +198,7 @@ COLLIDING_TITLES = [
 
 
 @pytest.mark.parametrize("title", COLLIDING_TITLES)
-def test_safeguard_hit_with_a_strong_match_goes_to_review(title, index):
+def test_safeguard_hit_with_a_strong_match_goes_to_review(title, index, filled_out_of_scope_stems):
     candidates = match(title, index)
     normalized = normalize(title)
     # Precondition: the safeguard fires *and* the lexical match is acceptable.
@@ -208,7 +213,7 @@ def test_safeguard_hit_with_a_strong_match_goes_to_review(title, index):
     assert decision.confidence < 1.0
 
 
-def test_safeguard_collision_confidence_reflects_the_contradiction():
+def test_safeguard_collision_confidence_reflects_the_contradiction(filled_out_of_scope_stems):
     decision = make_decision(
         "КЛС-047",
         "Мастер строительных и монтажных работ",
@@ -220,7 +225,7 @@ def test_safeguard_collision_confidence_reflects_the_contradiction():
     assert decision.confidence == 0.0
 
 
-def test_perevodchik_is_rejected_but_not_silently(index):
+def test_perevodchik_is_rejected_but_not_silently(index, filled_out_of_scope_stems):
     """The documented 0.737 leak: rejected, and — since the score disagrees
     that strongly — sent to a human rather than auto-accepted.
 
@@ -233,12 +238,12 @@ def test_perevodchik_is_rejected_but_not_silently(index):
     assert decision.requires_review == REVIEW_YES
 
 
-def test_safeguard_does_not_fire_on_any_classifier_name():
+def test_safeguard_does_not_fire_on_any_classifier_name(filled_out_of_scope_stems):
     fired = [name for _code, name in load_classifier() if is_out_of_scope(normalize(name))]
     assert fired == []
 
 
-def test_safeguard_does_not_fire_on_genuine_construction_rows():
+def test_safeguard_does_not_fire_on_genuine_construction_rows(filled_out_of_scope_stems):
     rows = read_csv_rows(DATA_DIR / "raw_positions.csv")
     titles = [row["Исходное наименование должности"] for row in rows]
     rejected = [t for t in titles if is_out_of_scope(normalize(t))]
@@ -246,11 +251,10 @@ def test_safeguard_does_not_fire_on_genuine_construction_rows():
     assert len(rejected) == 20
 
 
-def test_pipeline_ships_with_the_empty_out_of_scope_variant():
-    # Independent of the autouse fixture above: reads the file the pipeline
-    # actually points at (`OUT_OF_SCOPE_STEMS_PATH`), not the patched global.
-    assert decision_module.OUT_OF_SCOPE_STEMS_PATH == decision_module.OUT_OF_SCOPE_STEMS_EMPTY_PATH
-    assert load_out_of_scope_stems(decision_module.OUT_OF_SCOPE_STEMS_PATH) == ()
+def test_pipeline_ships_with_the_safeguard_off():
+    # No `filled_out_of_scope_stems` fixture here: this checks the real
+    # shipped default, not a test-only override.
+    assert decision_module.OUT_OF_SCOPE_STEMS == ()
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,12 @@ classifier index, by `matcher.py`):
     load_classifier(path=None) -> list[tuple[str, str]]
         The 56 `(code, canonical name)` pairs read from `data/classifier.csv`.
 
+    load_pattern_rules(path) -> list[tuple[str, str]]
+        `pattern;replacement` pairs from a text file, in file order. Backs
+        `ABBREVIATION_RULES`, `CRANE_TECHNIQUE_RULES`, `SYNONYM_RULES` below —
+        each has its rule data in a `data/*.txt` file, not in this module, so
+        the wordlists can be edited without touching code.
+
     DATA_DIR, CLASSIFIER_PATH
         Default location of the input data, anchored to the repo root via
         `__file__` (not to the current working directory).
@@ -50,6 +56,21 @@ def load_classifier(path: Path | None = None) -> list[tuple[str, str]]:
         return [(row[0].strip(), row[1].strip()) for row in reader if len(row) >= 2 and row[0].strip()]
 
 
+def load_pattern_rules(path: Path) -> list[tuple[str, str]]:
+    """Read `pattern;replacement` pairs from `path`, one per line, in file
+    order (application order matters for the rule lists below). Blank lines
+    and `#` comments are ignored."""
+    rules: list[tuple[str, str]] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            stripped = line.rstrip("\n").strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            pattern, _, replacement = line.rstrip("\n").partition(";")
+            rules.append((pattern, replacement))
+    return rules
+
+
 # --------------------------------------------------------------------------
 # Stage 2-4: garbage tails
 # --------------------------------------------------------------------------
@@ -72,26 +93,10 @@ GRADE_RE = re.compile(r"\b\d+[- ]*(й|го)?\s*(разряд[а-я]*|кат[а-�
 # Applied to the raw (still punctuated) string, because the trailing dot is
 # what makes most of these unambiguous.  Order matters: longer keys first, so
 # `металлоконстр.` is not eaten by `констр.` (the \b guard also prevents it).
-
-_ABBREVIATIONS: list[tuple[str, str]] = [
-    # `Эл.газосварщик`, `ЭЛ.ГАЗОСВАРЩИК`, `Эл.газосврщик` -> электрогазосварщик
-    (r"\bэл\.\s*", "электро"),
-    # `Сварщик ЭГС` is the whole job title, not сварщик + something.
-    (r"\bсварщик\s+эгс\b", "электрогазосварщик"),
-    (r"\bэгс\b", "электрогазосварщик"),
-    (r"\bпто\b", "производственно-технического отдела"),
-    (r"\bсмр\b", "строительных и монтажных работ"),
-    (r"\bмаш\.", "машинист"),
-    (r"\bнач\.", "начальник"),
-    (r"\bмех\.", "механического"),
-    (r"\bруч\.", "ручного"),
-    (r"\bметаллоконстр\.", "металлоконструкций"),
-    (r"\bконстр\.", "конструкций"),
-    (r"\bсантех\.", "санитарно-технических"),
-    (r"\bтехнолог\.", "технологических"),
-    (r"\bавтомоб\.", "автомобильного"),
-    (r"\bстроит\.", "строительных"),
-]
+# Data lives in `data/abbreviations.txt` (`Эл.газосварщик`, `ЭЛ.ГАЗОСВАРЩИК`,
+# `Эл.газосврщик` -> электрогазосварщик; `Сварщик ЭГС` is the whole job
+# title, not сварщик + something; etc.) — see that file for the full list.
+#
 # Deliberately absent: a rule splitting the productive prefix `строй` off a
 # glued noun (`СТРОЙУАСТКА`, id 38).  Measured: expanding it to
 # `мастер строительного участка` makes the record match КЛС-009 Маляр
@@ -99,6 +104,7 @@ _ABBREVIATIONS: list[tuple[str, str]] = [
 # as an unmatched token keeps КЛС-047 Мастер строительных и монтажных работ
 # on top.  See the task-2 report.
 
+_ABBREVIATIONS: list[tuple[str, str]] = load_pattern_rules(DATA_DIR / "abbreviations.txt")
 ABBREVIATION_RULES = [(re.compile(p), r) for p, r in _ABBREVIATIONS]
 
 
@@ -110,17 +116,12 @@ ABBREVIATION_RULES = [(re.compile(p), r) for p, r in _ABBREVIATIONS]
 # *technique* is normalized to a canonical form first, and only then is the
 # role word collapsed.
 
-# Inflected forms of the noun `кран` only — `кран[а-я]*` would also swallow
-# `крановщик`, which is the *role*, not the technique.
-_KRAN = r"кран(?:а|у|е|ом|ы|ов|ам|ами|ах)?"
+# Data lives in `data/crane_technique.txt` (patterns pre-expanded from the
+# inflected-forms-of-`кран` fragment `кран(?:а|у|е|ом|ы|ов|ам|ами|ах)?` —
+# `кран[а-я]*` alone would also swallow `крановщик`, which is the *role*,
+# not the technique).
 
-_CRANE_TECHNIQUE: list[tuple[str, str]] = [
-    (r"\bавтокран[а-я]*\b", "кран автомобильный"),
-    (rf"\b(?:башенн[а-я]*\s+{_KRAN}|{_KRAN}\s+башенн[а-я]*)\b", "кран башенный"),
-    (rf"\b(?:гусеничн[а-я]*\s+{_KRAN}|{_KRAN}\s+гусеничн[а-я]*)\b", "кран гусеничный"),
-    (rf"\b(?:автомобильн[а-я]*\s+{_KRAN}|{_KRAN}\s+автомобильн[а-я]*)\b", "кран автомобильный"),
-]
-
+_CRANE_TECHNIQUE: list[tuple[str, str]] = load_pattern_rules(DATA_DIR / "crane_technique.txt")
 CRANE_TECHNIQUE_RULES = [(re.compile(p), r) for p, r in _CRANE_TECHNIQUE]
 
 # True only once a technique rule has produced the bare canonical `кран`;
@@ -135,18 +136,11 @@ CRANE_ROLE_RE = re.compile(r"\b(?:крановщик|оператор)[а-я]*\b
 # Stage 7b: professional synonyms
 # --------------------------------------------------------------------------
 
-_SYNONYMS: list[tuple[str, str]] = [
-    (r"\bпроизводител[а-я]*\s+работ[а-я]*\b", "прораб"),
-    (r"\bспециалист[а-я]*\s+по\s+сметам\b", "сметчик"),
-    (r"\bбульдозерист[а-я]*\b", "машинист бульдозера"),
-    (r"\bразнорабоч[а-я]*\b", "подсобный рабочий"),
-    (r"\bшофер[а-я]*\b", "водитель"),
-    # Fallback for a crane role with no technique word at all.
-    (r"\bкрановщик[а-я]*\b", "машинист крана"),
-    # `операттор экскаватора` -> `машинист экскаватора`.
-    (r"\bоператор[а-я]*\b", "машинист"),
-]
+# Data lives in `data/synonyms.txt` (прораб, сметчик, бульдозерист ->
+# машинист бульдозера, крановщик as a fallback for a crane role with no
+# technique word at all, оператор экскаватора -> машинист экскаватора, etc.).
 
+_SYNONYMS: list[tuple[str, str]] = load_pattern_rules(DATA_DIR / "synonyms.txt")
 SYNONYM_RULES = [(re.compile(p), r) for p, r in _SYNONYMS]
 
 

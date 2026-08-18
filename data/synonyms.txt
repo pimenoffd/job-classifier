@@ -1,0 +1,11 @@
+# Professional synonyms -> canonical form (dictionaries.SYNONYM_RULES).
+# One `pattern;replacement` per line, applied after crane technique
+# normalization (stage 7b). `#` comments and blank lines ignored.
+
+\bпроизводител[а-я]*\s+работ[а-я]*\b;прораб
+\bспециалист[а-я]*\s+по\s+сметам\b;сметчик
+\bбульдозерист[а-я]*\b;машинист бульдозера
+\bразнорабоч[а-я]*\b;подсобный рабочий
+\bшофер[а-я]*\b;водитель
+\bкрановщик[а-я]*\b;машинист крана
+\bоператор[а-я]*\b;машинист
