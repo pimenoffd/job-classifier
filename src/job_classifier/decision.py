@@ -34,15 +34,14 @@ character-level coincidence (7 of 10 letters shared, in order) that no
 normalization rule or metric choice removes.  PLAN.md §9 requires all 20
 known office roles to come out as `НЕТ СООТВЕТСТВИЯ`, so a curated stem list
 overrides the score for them — kept in `data/out_of_scope_stems.txt`,
-loaded via `load_out_of_scope_stems()`. The pipeline ships with the
-safeguard **off** (`OUT_OF_SCOPE_STEMS = ()`): measured that way,
+loaded via `load_out_of_scope_stems()`. `config.toml`'s
+`decision.out_of_scope_safeguard_enabled` ships **off**: measured that way,
 `THRESHOLD_CONFIDENT` already keeps the one scoring leak (`Переводчик`) out
 of the auto-accepted branch on its own, so disabling the curated list costs
 review-queue size (4 -> 23 of 300 rows, all correctness-neutral: no rejection
 that skips review ever fires without the list, per `make_decision` step 1),
-not correctness — see NOTE.md. Set `OUT_OF_SCOPE_STEMS =
-load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)` to shrink the review queue
-back down.
+not correctness — see NOTE.md. Flip that config key to `true` to shrink the
+review queue back down.
 
 **Known limitation, to be disclosed in NOTE.md:** this list covers
 *previously observed* non-construction vocabulary only.  It is not an
@@ -65,19 +64,18 @@ from typing import NamedTuple
 
 from rapidfuzz import fuzz
 
+from .config import CONFIG
 from .dictionaries import DATA_DIR
 from .matcher import Candidate
 
-#: Acceptance boundary.  PLAN.md §3: max(OOD) = 0.541, min(match) = 0.632.
-THRESHOLD_MATCH = 0.55
-#: Above this a match is trusted without a human.  PLAN.md §3: 8% review load.
-THRESHOLD_CONFIDENT = 0.82
-#: Minimum gap to the runner-up.  PLAN.md §3: never fired on the 300 rows,
-#: kept as a guard against near-tied classifier pairs on unseen data.
-THRESHOLD_MARGIN = 0.08
-#: Empirical floor of non-construction scores (PLAN.md §4.3: `Казначей` 0.375,
-#: `Юрисконсульт` 0.385, `психолог` 0.400).  Denominator of OOD confidence.
-S_FLOOR = 0.35
+#: Tunables below are read from `config.toml` (`[decision]` table) — see
+#: `config.py`. PLAN.md §3: max(OOD) = 0.541, min(match) = 0.632; 8% review
+#: load at `threshold_confident`; PLAN.md §4.3 for `s_floor`'s empirical
+#: floor (`Казначей` 0.375, `Юрисконсульт` 0.385, `психолог` 0.400).
+THRESHOLD_MATCH = CONFIG.decision.threshold_match
+THRESHOLD_CONFIDENT = CONFIG.decision.threshold_confident
+THRESHOLD_MARGIN = CONFIG.decision.threshold_margin
+S_FLOOR = CONFIG.decision.s_floor
 
 #: Literal sentinel from the task spec — a marker, not a code.
 NO_MATCH = "НЕТ СООТВЕТСТВИЯ"
@@ -114,20 +112,24 @@ def load_out_of_scope_stems(path: Path) -> tuple[str, ...]:
         return tuple(line.strip() for line in f if line.strip() and not line.strip().startswith("#"))
 
 
-#: The pipeline ships with the safeguard **off** — no file needed to express
-#: "no curated stems"; call `load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)`
-#: to turn it back on.
-OUT_OF_SCOPE_STEMS: tuple[str, ...] = ()
+#: Toggled by `config.toml`'s `decision.out_of_scope_safeguard_enabled`
+#: (off by default — no file read to express "no curated stems"); flip it in
+#: the config file to turn the safeguard back on.
+OUT_OF_SCOPE_STEMS: tuple[str, ...] = (
+    load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)
+    if CONFIG.decision.out_of_scope_safeguard_enabled
+    else ()
+)
 
 #: The input is as noisy as everything else here (`Агроом`, `Диспетче`,
 #: `Кладощвик` all occur), so the stem lookup is typo-tolerant, mirroring
-#: `normalize.correct_token`.  Set tighter than that function's 80: a false
-#: positive here rejects a real construction worker outright, whereas a
-#: correction there only nudges a token.
-OUT_OF_SCOPE_SCORE_CUTOFF = 85.0
+#: `normalize.correct_token`.  Set tighter than that function's cutoff: a
+#: false positive here rejects a real construction worker outright, whereas
+#: a correction there only nudges a token.
+OUT_OF_SCOPE_SCORE_CUTOFF = CONFIG.decision.out_of_scope_score_cutoff
 #: Same guard as `normalize.CORRECTION_MAX_LENGTH_DELTA`: a typo shifts a
 #: word's length by a character or two, so `кадр` cannot swallow `кадровщик`.
-OUT_OF_SCOPE_MAX_LENGTH_DELTA = 2
+OUT_OF_SCOPE_MAX_LENGTH_DELTA = CONFIG.decision.out_of_scope_max_length_delta
 
 
 def is_out_of_scope(normalized_query: str) -> bool:

@@ -10,15 +10,17 @@ Public interface:
         Score `query` against every entry in `index` and return the top `k`
         candidates, sorted descending by score.
 
-Score formula (controller ruling, task-3-brief.md): `0.5 *
-rapidfuzz.fuzz.token_sort_ratio + 0.5 * rapidfuzz.fuzz.ratio`, computed on
-the two sides' `normalize()` output and scaled from rapidfuzz's 0-100 range
-to `[0, 1]` — matching the scale of `docs/PLAN.md`'s threshold constants
-(`T_match = 0.55` etc.). This overrides §7 step 3's literal `WRatio`
-wording: PLAN.md §3's calibration experiment that produced `T_match` was
-run against `ratio`, not `WRatio`, and `WRatio`'s partial-token matching
-was measured to let through 6x more office-role false positives at the
-same threshold (see task-3-brief.md for the full account).
+Score formula (controller ruling, task-3-brief.md): `w *
+rapidfuzz.fuzz.token_sort_ratio + (1 - w) * rapidfuzz.fuzz.ratio`, with `w`
+= `config.toml`'s `matcher.token_sort_ratio_weight` (shipped at 0.5),
+computed on the two sides' `normalize()` output and scaled from rapidfuzz's
+0-100 range to `[0, 1]` — matching the scale of `docs/PLAN.md`'s threshold
+constants (`T_match = 0.55` etc.). This overrides §7 step 3's literal
+`WRatio` wording: PLAN.md §3's calibration experiment that produced
+`T_match` was run against `ratio`, not `WRatio`, and `WRatio`'s
+partial-token matching was measured to let through 6x more office-role
+false positives at the same threshold (see task-3-brief.md for the full
+account).
 
 This module only scores and ranks candidates. It does not apply
 `T_match`/`T_confident`/`T_margin` or decide match/no-match — that's
@@ -31,12 +33,14 @@ from typing import NamedTuple
 
 from rapidfuzz import fuzz
 
+from .config import CONFIG
 from .dictionaries import load_classifier
 from .normalize import normalize
 
-#: Default number of candidates `match()` returns. `decision.py` (Task 4)
-#: needs at least the top 2 for its margin check; 5 is headroom beyond that.
-DEFAULT_K = 5
+#: Number of candidates `match()` returns by default, from `config.toml`
+#: (`[matcher]` table). `decision.py` (Task 4) needs at least the top 2 for
+#: its margin check; the shipped value of 5 is headroom beyond that.
+DEFAULT_K = CONFIG.matcher.default_k
 
 
 class IndexEntry(NamedTuple):
@@ -67,9 +71,10 @@ def build_index(path=None, vocabulary: tuple[str, ...] | None = None) -> Classif
 
 
 def _score(query_normalized: str, entry_normalized: str) -> float:
+    weight = CONFIG.matcher.token_sort_ratio_weight
     token_sort = fuzz.token_sort_ratio(query_normalized, entry_normalized)
     ratio = fuzz.ratio(query_normalized, entry_normalized)
-    return (0.5 * token_sort + 0.5 * ratio) / 100
+    return (weight * token_sort + (1 - weight) * ratio) / 100
 
 
 def match(

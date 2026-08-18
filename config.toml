@@ -1,0 +1,57 @@
+# job_classifier runtime configuration.
+#
+# Tunable numbers and on/off switches live here so the pipeline can be
+# retuned without touching source code. Word lists (abbreviations, synonyms,
+# out-of-scope stems, ...) are a separate concern — see data/*.txt.
+
+
+[decision]
+# Acceptance boundary: score below this -> НЕТ СООТВЕТСТВИЯ.
+# PLAN.md §3: max(OOD) = 0.541, min(match) = 0.632.
+threshold_match = 0.55
+
+# Above this a match is trusted without a human. PLAN.md §3: 8% review load.
+threshold_confident = 0.82
+
+# Minimum gap to the runner-up before auto-accepting a match without review.
+threshold_margin = 0.08
+
+# Empirical floor of non-construction scores (PLAN.md §4.3: `Казначей` 0.375,
+# `Юрисконсульт` 0.385, `психолог` 0.400). Denominator of OOD confidence.
+s_floor = 0.35
+
+# Typo-tolerance cutoff (0-100, rapidfuzz scale) for the out-of-scope stem
+# lookup. Set tighter than normalize.correction_score_cutoff: a false
+# positive here rejects a real construction worker outright.
+out_of_scope_score_cutoff = 85.0
+
+# Max token/stem length difference tolerated by the out-of-scope typo match.
+out_of_scope_max_length_delta = 2
+
+# Turn the curated out-of-scope stem dictionary (data/out_of_scope_stems.txt)
+# on or off. Off by default: measured correctness-neutral either way (every
+# rejection requires review regardless), the dictionary only trades review-
+# queue size for certainty on 20 previously observed non-construction titles.
+out_of_scope_safeguard_enabled = false
+
+
+[normalize]
+# rapidfuzz `ratio` cutoff (0-100) for snapping an unknown token onto the
+# correction vocabulary.
+correction_score_cutoff = 80.0
+
+# Max token-length difference tolerated by typo correction. Without this
+# window, unrelated words of similar length can score >= the cutoff.
+correction_max_length_delta = 2
+
+# Tokens shorter than this are left uncorrected — `ratio` is pure noise at
+# 1-2 characters.
+correction_min_token_length = 3
+
+
+[matcher]
+# Weight of token_sort_ratio in the combined score; `ratio` gets `1 - this`.
+token_sort_ratio_weight = 0.5
+
+# Number of top candidates match() returns.
+default_k = 5

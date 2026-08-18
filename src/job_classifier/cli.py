@@ -54,7 +54,9 @@ RESULTS_COLUMNS = (
     "Требует проверки",
 )
 
-DEFAULT_RESULTS_PATH = Path("data/results.csv")
+#: Anchored to `DATA_DIR` like the other defaults above, not to the current
+#: working directory.
+DEFAULT_RESULTS_PATH = DATA_DIR / "results.csv"
 
 
 def cmd_match(args: argparse.Namespace) -> None:

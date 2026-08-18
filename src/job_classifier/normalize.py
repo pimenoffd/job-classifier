@@ -41,19 +41,22 @@ import snowballstemmer
 from rapidfuzz import fuzz, process
 
 from . import dictionaries as rules
+from .config import CONFIG
 
 _STEMMER = snowballstemmer.stemmer("russian")
 
 TOKEN_RE = re.compile(r"[a-zа-я0-9]+")
 
-#: rapidfuzz scores are 0-100, so PLAN.md §4.1's "ratio >= 0.80" is 80 here.
-CORRECTION_SCORE_CUTOFF = 80.0
-#: A typo changes a word's length by at most a character or two.  Without this
-#: window `делопроизводитель` scores 83 against the rule token `производител`
-#: and would be silently rewritten into a construction term.
-CORRECTION_MAX_LENGTH_DELTA = 2
-#: Shorter tokens are left alone; at 1-2 characters `ratio` is pure noise.
-CORRECTION_MIN_TOKEN_LENGTH = 3
+#: Tunables below are read from `config.toml` (`[normalize]` table) — see
+#: `config.py`. rapidfuzz scores are 0-100, so PLAN.md §4.1's "ratio >= 0.80"
+#: is 80 here. `CORRECTION_MAX_LENGTH_DELTA`: a typo changes a word's length
+#: by at most a character or two — without this window `делопроизводитель`
+#: scores 83 against the rule token `производител` and would be silently
+#: rewritten into a construction term. `CORRECTION_MIN_TOKEN_LENGTH`: shorter
+#: tokens are left alone; at 1-2 characters `ratio` is pure noise.
+CORRECTION_SCORE_CUTOFF = CONFIG.normalize.correction_score_cutoff
+CORRECTION_MAX_LENGTH_DELTA = CONFIG.normalize.correction_max_length_delta
+CORRECTION_MIN_TOKEN_LENGTH = CONFIG.normalize.correction_min_token_length
 
 
 @functools.lru_cache(maxsize=1)
