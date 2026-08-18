@@ -33,7 +33,15 @@ separate every non-construction title from the classifier.  Measured leak:
 character-level coincidence (7 of 10 letters shared, in order) that no
 normalization rule or metric choice removes.  PLAN.md §9 requires all 20
 known office roles to come out as `НЕТ СООТВЕТСТВИЯ`, so a curated stem list
-overrides the score for them.
+overrides the score for them — loaded from `OUT_OF_SCOPE_STEMS_PATH`, one of
+two file variants (`out_of_scope_stems_filled.txt` /
+`out_of_scope_stems_empty.txt`) in `data/`. The pipeline ships pointed at the
+**empty** file: measured with the safeguard off, `THRESHOLD_CONFIDENT`
+already keeps the one scoring leak (`Переводчик`) out of the auto-accepted
+branch on its own, so disabling the curated list costs review-queue size
+(4 -> 16 of 300 rows), not correctness — see NOTE.md. Point
+`OUT_OF_SCOPE_STEMS_PATH` at the filled file to shrink the review queue back
+down.
 
 **Known limitation, to be disclosed in NOTE.md:** this list covers
 *previously observed* non-construction vocabulary only.  It is not an
@@ -51,10 +59,12 @@ silently discarded; see `make_decision` step 0.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import NamedTuple
 
 from rapidfuzz import fuzz
 
+from .dictionaries import DATA_DIR
 from .matcher import Candidate
 
 #: Acceptance boundary.  PLAN.md §3: max(OOD) = 0.541, min(match) = 0.632.
@@ -89,35 +99,30 @@ class Decision(NamedTuple):
 # Out-of-scope safeguard
 # ---------------------------------------------------------------------------
 
-#: Snowball-RU stems of the 20 non-construction titles enumerated in PLAN.md
-#: §2.  Stems, because `normalize()` stems its output: `кадров` -> `кадр`,
-#: `агроном` -> `агрон`, `делопроизводитель` -> `делопроизводител`.
-#: `Системный администратор` is keyed on `администратор` — `системн` alone is
-#: too generic.  Verified: none of these fires on any of the 56 classifier
-#: names, nor on any of the 280 genuine construction rows of
-#: `raw_positions.csv` (see tests/test_decision.py).
-OUT_OF_SCOPE_STEMS: tuple[str, ...] = (
-    "агрон",
-    "администратор",
-    "бухгалтер",
-    "делопроизводител",
-    "диспетчер",
-    "кадр",
-    "казнач",
-    "кладовщик",
-    "курьер",
-    "маркетолог",
-    "менеджер",
-    "охранник",
-    "переводчик",
-    "повар",
-    "программист",
-    "психолог",
-    "уборщик",
-    "фельдшер",
-    "экономист",
-    "юрисконсульт",
-)
+#: Two variants of the curated stem list, as plain text files (one stem per
+#: line, `#` comments ignored) — see `load_out_of_scope_stems()`.  Stems,
+#: because `normalize()` stems its output: `кадров` -> `кадр`, `агроном` ->
+#: `агрон`, `делопроизводитель` -> `делопроизводител`.  `Системный
+#: администратор` is keyed on `администратор` — `системн` alone is too
+#: generic.  Verified (tests/test_decision.py): the filled variant fires on
+#: none of the 56 classifier names, nor on any of the 280 genuine
+#: construction rows of `raw_positions.csv`.
+OUT_OF_SCOPE_STEMS_EMPTY_PATH = DATA_DIR / "out_of_scope_stems_empty.txt"
+OUT_OF_SCOPE_STEMS_FILLED_PATH = DATA_DIR / "out_of_scope_stems_filled.txt"
+
+#: The pipeline ships with the safeguard **off**: swap this to
+#: `OUT_OF_SCOPE_STEMS_FILLED_PATH` (or edit the empty file's contents) to
+#: turn it back on.
+OUT_OF_SCOPE_STEMS_PATH = OUT_OF_SCOPE_STEMS_EMPTY_PATH
+
+
+def load_out_of_scope_stems(path: Path) -> tuple[str, ...]:
+    """Read one stem per line from `path`. Blank lines and `#` comments ignored."""
+    with open(path, encoding="utf-8") as f:
+        return tuple(line.strip() for line in f if line.strip() and not line.strip().startswith("#"))
+
+
+OUT_OF_SCOPE_STEMS: tuple[str, ...] = load_out_of_scope_stems(OUT_OF_SCOPE_STEMS_PATH)
 
 #: The input is as noisy as everything else here (`Агроом`, `Диспетче`,
 #: `Кладощвик` all occur), so the stem lookup is typo-tolerant, mirroring

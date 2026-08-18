@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from job_classifier import decision as decision_module
 from job_classifier.cli import (
     DEFAULT_LABELED_SAMPLE_PATH,
     evaluate_rows,
@@ -31,6 +32,7 @@ from job_classifier.decision import (
     THRESHOLD_MATCH,
     decide,
     is_out_of_scope,
+    load_out_of_scope_stems,
     make_decision,
 )
 from job_classifier.dictionaries import load_classifier
@@ -38,6 +40,17 @@ from job_classifier.matcher import build_index, match
 from job_classifier.normalize import normalize
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+#: Section 2 tests exercise the safeguard *mechanism*, so they run against
+#: the filled stem list regardless of which variant the pipeline ships with
+#: by default (`decision.OUT_OF_SCOPE_STEMS_PATH`).
+@pytest.fixture(autouse=True)
+def filled_out_of_scope_stems(monkeypatch):
+    monkeypatch.setattr(
+        decision_module,
+        "OUT_OF_SCOPE_STEMS",
+        load_out_of_scope_stems(decision_module.OUT_OF_SCOPE_STEMS_FILLED_PATH),
+    )
 
 #: The 20 non-construction titles of PLAN.md §2, verbatim as they appear in
 #: `data/raw_positions.csv` — typos (`Агроом`, `Диспетче`, `Кладощвик`)
@@ -231,6 +244,13 @@ def test_safeguard_does_not_fire_on_genuine_construction_rows():
     rejected = [t for t in titles if is_out_of_scope(normalize(t))]
     # Exactly the 20 non-construction rows of PLAN.md §2, none of the 280 others.
     assert len(rejected) == 20
+
+
+def test_pipeline_ships_with_the_empty_out_of_scope_variant():
+    # Independent of the autouse fixture above: reads the file the pipeline
+    # actually points at (`OUT_OF_SCOPE_STEMS_PATH`), not the patched global.
+    assert decision_module.OUT_OF_SCOPE_STEMS_PATH == decision_module.OUT_OF_SCOPE_STEMS_EMPTY_PATH
+    assert load_out_of_scope_stems(decision_module.OUT_OF_SCOPE_STEMS_PATH) == ()
 
 
 # ---------------------------------------------------------------------------

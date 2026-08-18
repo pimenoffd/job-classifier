@@ -1,0 +1,23 @@
+# Snowball-RU stems of the 20 non-construction titles from PLAN.md §2.
+# One stem per line. Matching is typo-tolerant (decision.is_out_of_scope),
+# so a stem also catches its misspellings within the length/ratio window.
+агрон
+администратор
+бухгалтер
+делопроизводител
+диспетчер
+кадр
+казнач
+кладовщик
+курьер
+маркетолог
+менеджер
+охранник
+переводчик
+повар
+программист
+психолог
+уборщик
+фельдшер
+экономист
+юрисконсульт

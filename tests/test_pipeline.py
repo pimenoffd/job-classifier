@@ -19,6 +19,13 @@ for the phrase-level score to clear the boundary. It is flagged
 not silently misfiled. This is flagged to the controller as a scope
 question for `normalize.py`/`matcher.py`, not silently patched here — see
 task-5-report.md.
+
+The pipeline ships with `decision.OUT_OF_SCOPE_STEMS_PATH` pointed at the
+*empty* variant (see decision.py), so id 113 (`Переводчик`) is absent here
+too: without the curated stem list nothing overrides its 0.737 score against
+`КЛС-056 Проходчик`, so it comes back as a match rather than `НЕТ
+СООТВЕТСТВИЯ`. `THRESHOLD_CONFIDENT` still catches it (0.737 < 0.82), so it
+is flagged `Требует проверки == "да"` — not silently accepted.
 """
 
 import csv
@@ -29,15 +36,15 @@ from job_classifier.cli import build_parser
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Observed on the real data (see module docstring): the 20 ids predicted by
-#: task-5-brief.md, plus id 38 (a construction-role false rejection, flagged
-#: as a discrepancy rather than adjusted away).
+#: task-5-brief.md, minus id 113 (the curated out-of-scope list is off by
+#: default), plus id 38 (a construction-role false rejection, flagged as a
+#: discrepancy rather than adjusted away).
 EXPECTED_NO_MATCH_IDS = {
     "38",
     "49",
     "52",
     "66",
     "84",
-    "113",
     "117",
     "126",
     "136",

@@ -1,0 +1,4 @@
+# Empty variant of the out-of-scope stem list: the safeguard is disabled,
+# nothing overrides the lexical score. This is the file the pipeline loads
+# by default (see decision.OUT_OF_SCOPE_STEMS_PATH); swap in
+# out_of_scope_stems_filled.txt to re-enable the curated safeguard.
